@@ -1,0 +1,66 @@
+name: Windows portable release
+
+on:
+  push:
+    branches: [arena/8fdef716-mtproto-checker]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install and build portable executable
+        shell: pwsh
+        run: |
+          npm ci
+          npm run tauri build -- --no-bundle
+          Copy-Item src-tauri/target/release/mtproto-checker.exe MTProto-Checker-Windows-x64.exe
+          if (!(Test-Path MTProto-Checker-Windows-x64.exe)) { throw 'Executable missing' }
+      - name: Publish executable to GitHub Releases
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+          } elseif ($env:INPUT_TAG) {
+            $tag = $env:INPUT_TAG
+          } else {
+            # Bootstrap the first release from the Arena branch. Later releases
+            # should be made by pushing v* tags (or workflow_dispatch on main).
+            $tag = 'v0.1.0'
+            gh release view $tag 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "$tag already exists; not replacing the release asset."
+              exit 0
+            }
+          }
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw "Invalid release tag: $tag" }
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag MTProto-Checker-Windows-x64.exe --clobber
+          } else {
+            gh release create $tag MTProto-Checker-Windows-x64.exe --target $env:GITHUB_SHA --title "MTProto Checker $tag" --notes "Portable Windows x64 executable. No installer required. Windows 10/11 with Microsoft Edge WebView2 Runtime is required. Download the .exe and run it; Windows may show an unsigned-app warning."
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release upload failed' }
