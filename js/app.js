@@ -19,6 +19,7 @@ import {
   buildScanSection, buildDayReport, dateFileName, timestampLabel, STATUS_LABELS,
 } from "./scan.js";
 import { detectRepo, commitFile, readFile } from "./github.js";
+import { initResizable } from "./resize.js";
 
 /* ------------------------------- State ------------------------------- */
 
@@ -29,6 +30,8 @@ let lastSectionMd = "";          // markdown of the last scan section
 let localDaySections = [];       // sections accumulated locally this session
 let extractTimer = null;
 let scanning = false;
+let extracting = false;
+const busyTasks = new Map();     // key -> label of work currently in progress
 
 // Auto-detect the GitHub Pages repository once.
 if (!settings.repoOwner || !settings.repoName) {
@@ -57,6 +60,8 @@ const els = {
   btnSelectAll: $("btnSelectAll"),
   btnSelectNone: $("btnSelectNone"),
   btnExtract: $("btnExtract"),
+  btnExtractIcon: $("btnExtractIcon"),
+  btnExtractSpinner: $("btnExtractSpinner"),
   btnExportChannels: $("btnExportChannels"),
   btnImportChannels: $("btnImportChannels"),
   importFile: $("importFile"),
@@ -72,6 +77,10 @@ const els = {
 
   btnScan: $("btnScan"),
   btnScanLabel: $("btnScanLabel"),
+  btnScanIcon: $("btnScanIcon"),
+  btnScanSpinner: $("btnScanSpinner"),
+  busyChip: $("busyChip"),
+  busyText: $("busyText"),
   btnSaveRepo: $("btnSaveRepo"),
   btnDownloadResults: $("btnDownloadResults"),
   scanProgress: $("scanProgress"),
@@ -106,6 +115,17 @@ const els = {
 
   toasts: $("toasts"),
 };
+
+/* ---------------------------- Busy indicator ---------------------------- */
+
+/** Mark a background task as running (label) or finished (no label). */
+function setBusy(key, label) {
+  if (label) busyTasks.set(key, label);
+  else busyTasks.delete(key);
+  const current = [...busyTasks.values()].pop();
+  els.busyChip.hidden = !current;
+  els.busyText.textContent = current || "";
+}
 
 /* ------------------------------- Toasts ------------------------------- */
 
@@ -206,7 +226,7 @@ function renderChannels() {
 }
 
 function updateExtractButton() {
-  els.btnExtract.disabled = !channels.some((c) => c.selected);
+  els.btnExtract.disabled = extracting || !channels.some((c) => c.selected);
 }
 
 /* --------------------------- Channel modal --------------------------- */
@@ -307,6 +327,24 @@ function mergeConfigsIntoTextarea(configs) {
 }
 
 async function extractSelected() {
+  if (extracting || !channels.some((c) => c.selected)) return;
+  extracting = true;
+  els.btnExtractSpinner.hidden = false;
+  els.btnExtractIcon.hidden = true;
+  setBusy("extract", "Extracting configs…");
+  updateExtractButton();
+  try {
+    await extractSelectedChannels();
+  } finally {
+    extracting = false;
+    els.btnExtractSpinner.hidden = true;
+    els.btnExtractIcon.hidden = false;
+    setBusy("extract");
+    updateExtractButton();
+  }
+}
+
+async function extractSelectedChannels() {
   const selected = channels.filter((c) => c.selected);
   if (!selected.length) return;
 
@@ -380,6 +418,9 @@ async function runScan() {
   scanning = true;
   els.btnScan.disabled = true;
   els.btnScanLabel.textContent = "Scanning…";
+  els.btnScanSpinner.hidden = false;
+  els.btnScanIcon.hidden = true;
+  setBusy("scan", "Scanning configs…");
   els.scanProgress.hidden = false;
   els.scanProgressFill.style.width = "0%";
   els.scanProgressText.textContent = `Scanning 0 / ${configs.length}…`;
@@ -419,6 +460,9 @@ async function runScan() {
     scanning = false;
     els.btnScan.disabled = false;
     els.btnScanLabel.textContent = "Scan";
+    els.btnScanSpinner.hidden = true;
+    els.btnScanIcon.hidden = false;
+    setBusy("scan");
     setTimeout(() => { els.scanProgress.hidden = true; }, 900);
   }
 }
@@ -427,7 +471,7 @@ function resultClass(r, rank) {
   const cls = ["result-item"];
   if (rank === 1 && (r.status === "valid" || r.status === "slow")) cls.push("top");
   if (r.status === "slow") cls.push("slow");
-  if (r.status === "timeout" || r.status === "unreachable" || r.status === "invalid") cls.push("dead");
+  if (r.status === "timeout" || r.status === "unreachable" || r.status === "blocked" || r.status === "invalid") cls.push("dead");
   return cls.join(" ");
 }
 
@@ -529,6 +573,7 @@ async function saveResultsToRepo() {
   }
 
   setSaveChip("saving", "Repo save: saving…");
+  setBusy("save", "Saving results to repository…");
   try {
     const existing = await readFile({
       token: settings.githubToken,
@@ -556,6 +601,8 @@ async function saveResultsToRepo() {
   } catch (err) {
     setSaveChip("error", "Repo save: failed");
     toast(`Could not save results: ${err.message}`, "error");
+  } finally {
+    setBusy("save");
   }
 }
 
@@ -626,6 +673,7 @@ function init() {
 
   renderChannels();
   updateConfigStats();
+  initResizable();
 
   // Channels
   els.btnAddChannel.addEventListener("click", () => openChannelModal());

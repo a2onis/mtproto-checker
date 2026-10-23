@@ -28,7 +28,8 @@ const HOST_PORT_SECRET_RE = /(?:^|\s)((?:\d{1,3}(?:\.\d{1,3}){3}|[A-Za-z0-9](?:[
  */
 export function configFromParams(search) {
   const params = new URLSearchParams(search);
-  const server = (params.get("server") || "").trim();
+  // A trailing dot is just the fully-qualified form of the same hostname.
+  const server = (params.get("server") || "").trim().replace(/\.+$/, "");
   const port = parseInt(params.get("port") || "", 10);
   const secret = (params.get("secret") || "").trim();
   if (!server || !port || !secret) return null;
@@ -47,6 +48,8 @@ export function configKey(cfg) {
 export function extractConfigsFromText(text) {
   const out = new Map();
   if (!text) return [];
+  // Links copied from HTML sources arrive with escaped ampersands (&amp;).
+  text = text.replace(/&amp;/gi, "&");
 
   for (const m of text.matchAll(PROXY_LINK_RE)) {
     const cfg = configFromParams(m[1]);
