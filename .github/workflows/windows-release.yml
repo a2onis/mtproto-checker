@@ -2,8 +2,6 @@ name: Windows Portable Release
 
 on:
   push:
-    branches:
-      - arena/39aa5275-mtproto-checker
     tags:
       - "v*"
   release:
