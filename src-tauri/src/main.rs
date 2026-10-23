@@ -540,12 +540,13 @@ mod tests {
         assert_eq!(open_res.resolved_ip.as_deref(), Some("127.0.0.1"));
         let _ = accept_task.await;
 
-        // Closed ephemeral port after dropping listener reports unreachable
+        // Closed ephemeral port after dropping listener: on Windows Winsock,
+        // SYN retries take ~2s before WSAECONNREFUSED is surfaced.
         let closed_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let closed_port = closed_listener.local_addr().unwrap().port();
         drop(closed_listener);
 
-        let closed_res = scan_endpoint("127.0.0.1".into(), closed_port, 1_500, 1)
+        let closed_res = scan_endpoint("127.0.0.1".into(), closed_port, 3_500, 1)
             .await
             .unwrap();
         assert_eq!(closed_res.status, "unreachable");
