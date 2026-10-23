@@ -26,6 +26,10 @@
         </div>
       </div>
       <div class="topbar-right">
+        <span class="chip chip-busy" id="busyChip" role="status" aria-live="polite" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="busyText">Working…</span>
+        </span>
         <span class="chip chip-date" id="todayChip" title="Today's date (local time)"></span>
         <span class="chip chip-save" id="saveStatusChip" title="Repository save status">Repo save: idle</span>
         <button class="btn btn-ghost" id="btnSettings" title="Settings">
@@ -39,7 +43,7 @@
     <div class="layout">
 
       <!-- ---- Section 1 : Sidebar (channel manager) ---- -->
-      <aside class="sidebar" id="sidebar">
+      <aside class="sidebar" id="sidebar" data-resize-key="sidebar">
         <div class="sidebar-head">
           <div class="sidebar-title">
             <h2>Channels</h2>
@@ -70,7 +74,8 @@
             <button class="btn btn-ghost btn-xs" id="btnSelectNone">Clear selection</button>
           </div>
           <button class="btn btn-accent btn-block" id="btnExtract" disabled>
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            <span class="spinner" id="btnExtractSpinner" aria-hidden="true" hidden></span>
+            <svg id="btnExtractIcon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
             Extract Selected
           </button>
           <div class="sidebar-foot-row">
@@ -85,7 +90,7 @@
       <main class="main">
 
         <!-- Section 2 : Configurations textarea -->
-        <section class="panel panel-configs" id="panelConfigs">
+        <section class="panel panel-configs" id="panelConfigs" data-resize-key="configs">
           <div class="panel-head">
             <div class="panel-title">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
@@ -113,7 +118,7 @@
         </section>
 
         <!-- Section 3 : Scan results -->
-        <section class="panel panel-results" id="panelResults">
+        <section class="panel panel-results" id="panelResults" data-resize-key="results">
           <div class="panel-head">
             <div class="panel-title">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -122,7 +127,8 @@
             </div>
             <div class="panel-actions">
               <button class="btn btn-primary" id="btnScan" title="Run a client-side scan (Ctrl/Cmd + Enter)">
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                <span class="spinner" id="btnScanSpinner" aria-hidden="true" hidden></span>
+                <svg id="btnScanIcon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
                 <span id="btnScanLabel">Scan</span>
               </button>
               <button class="btn btn-ghost btn-xs" id="btnSaveRepo" title="Save the sorted results to results/YYYY-MM-DD.md in the repository" disabled>Save to repo</button>

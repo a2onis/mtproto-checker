@@ -29,14 +29,39 @@ export function isValidHostname(host) {
 export function isValidSecret(secret) {
   if (!secret) return false;
   const s = secret.trim();
-  // Hex: 16 or 32 bytes (dd/ee prefixed secrets are 32 bytes).
-  if (/^[0-9a-fA-F]+$/.test(s) && (s.length === 32 || s.length === 64)) return true;
+  if (/^[0-9a-fA-F]+$/.test(s)) {
+    // Plain 16-byte or 32-byte secret.
+    if (s.length === 32 || s.length === 64) return true;
+    // "dd" = padded intermediate secret: prefix byte + 16 (or 32) key bytes.
+    if (/^dd/i.test(s) && (s.length === 34 || s.length === 66)) return true;
+    // "ee" = FakeTLS secret: prefix byte + key bytes + hex-encoded fake domain.
+    if (/^ee/i.test(s) && s.length >= 34 && s.length % 2 === 0) return true;
+    return false;
+  }
   // Base64url: 16 or 32 bytes, with optional padding.
   if (/^[A-Za-z0-9_\-]+={0,2}$/.test(s)) {
     const body = s.replace(/=+$/, "");
     if (body.length === 22 || body.length === 43) return true;
   }
   return false;
+}
+
+/**
+ * Ports that browsers refuse to open with fetch() (the Fetch spec's "bad
+ * ports" list, e.g. 22/SSH). A web page can never reach these, so probing
+ * them would always report a false "unreachable".
+ */
+const BROWSER_BLOCKED_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
+  87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137,
+  139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+  540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723,
+  2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697,
+  10080,
+]);
+
+export function isBrowserBlockedPort(port) {
+  return BROWSER_BLOCKED_PORTS.has(port);
 }
 
 /** Full syntax check. Returns { ok, reason? } */
@@ -122,7 +147,7 @@ export async function resolveHost(hostname) {
  * Probe a single configuration. Takes the fastest of `attempts` tries and
  * classifies reachability.
  *
- * Statuses: 'valid' | 'slow' | 'timeout' | 'unreachable'
+ * Statuses: 'valid' | 'slow' | 'timeout' | 'unreachable' | 'blocked' | 'invalid'
  */
 export async function scanConfig(cfg, opts, onTick) {
   const timeoutMs = opts.scanTimeout || 5000;
@@ -140,6 +165,17 @@ export async function scanConfig(cfg, opts, onTick) {
   if (!syntax.ok) {
     onTick?.();
     return { ...base, status: "invalid", reason: syntax.reason, latencyMs: null, resolvedIp: null };
+  }
+
+  if (isBrowserBlockedPort(cfg.port)) {
+    onTick?.();
+    return {
+      ...base,
+      status: "blocked",
+      reason: `port ${cfg.port} is blocked by browsers — cannot be tested from a web page`,
+      latencyMs: null,
+      resolvedIp: null,
+    };
   }
 
   const dns = await resolveHost(cfg.server);
@@ -236,6 +272,7 @@ export const STATUS_LABELS = {
   slow: "Slow",
   timeout: "Timeout",
   unreachable: "Unreachable",
+  blocked: "Blocked port",
   invalid: "Invalid",
 };
 
@@ -282,7 +319,8 @@ export function buildScanSection(results, opts = {}) {
       r.status === "valid" ? "✅ Valid" :
       r.status === "slow" ? "🟡 Slow" :
       r.status === "timeout" ? "⏱ Timeout" :
-      r.status === "unreachable" ? "❌ Unreachable" : "❌ Invalid";
+      r.status === "unreachable" ? "❌ Unreachable" :
+      r.status === "blocked" ? "⛔ Blocked port" : "❌ Invalid";
     lines.push(
       `| ${i + 1} | \`${escapeMd(r.server)}\` | ${r.port} | \`${escapeMd(shortSecret(r.secret))}\` | ${mark} | ${r.latencyMs ?? "—"} | ${r.resolvedIp ? `\`${escapeMd(r.resolvedIp)}\`` : "—"} |`
     );

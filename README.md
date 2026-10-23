@@ -53,7 +53,14 @@ Everything runs **client-side over your own connection**:
 2. **DNS check** — hostnames are resolved over DNS-over-HTTPS to flag dead domains.
 3. **Reachability probe** — the browser opens an HTTPS connection to `server:port` and measures the time to the first network outcome (browsers can't speak raw TCP, so the TCP+TLS handshake timing is used as the response-speed metric; live MTProto endpoints reject the browser's TLS handshake by design, which still yields an accurate latency measurement).
 
-Results are sorted fastest-first; statuses: **Valid**, **Slow**, **Timeout**, **Unreachable**, **Invalid**.
+Results are sorted fastest-first; statuses: **Valid**, **Slow**, **Timeout**, **Unreachable**, **Blocked port** (browsers refuse to open ports such as 22, so these cannot be tested from a web page), **Invalid**.
+
+Secrets are accepted in the forms Telegram uses: 32 hex characters, `dd`-prefixed (padded) secrets, `ee`-prefixed FakeTLS secrets (with the hex-encoded fake domain), or base64url.
+
+## Layout and feedback
+
+- **Resizable sections** — drag the right edge to change width, the bottom edge to change height, or the bottom-right corner for both. Double-click a handle to restore the default size. Sizes are remembered in your browser.
+- **Loading indicators** — a spinner chip in the top bar names the work in progress (extracting, scanning, saving), and the Extract / Scan buttons show a spinner while running.
 
 ## How extraction works
 
