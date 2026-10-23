@@ -6,6 +6,10 @@
 
 /** Best-effort guess of owner/repo from the GitHub Pages URL. */
 export function detectRepo() {
+  // The packaged desktop build has no GitHub Pages URL to infer this from.
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    return { owner: "a2onis", repo: "mtproto-checker" };
+  }
   try {
     const host = location.hostname; // e.g. "alice.github.io"
     const segs = location.pathname.split("/").filter(Boolean);

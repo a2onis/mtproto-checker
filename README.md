@@ -16,9 +16,27 @@ A single-page web application for **extracting and testing MTProto proxy configu
 | 2 · Configurations | Top right | Displays extracted configs and lets you paste/edit configs manually (`tg://proxy?…`, `https://t.me/proxy?…` or `server:port:secret`). |
 | 3 · Scan results | Bottom right | After pressing **Scan**, configurations are probed from your browser and listed **sorted by response speed**. Results are saved to `results/<date>.md`. |
 
-## Quick start
+## Windows portable application
 
-No build step — it's plain HTML/CSS/JS.
+Download **`MTProto-Checker-Windows-x64.exe`** from the [latest GitHub release](https://github.com/a2onis/mtproto-checker/releases/latest) and run it — no installer, browser tab, or server required. The desktop shell uses Tauri/Windows WebView2 rather than shipping a second browser, keeping the executable small. Windows 10/11 x64 and the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) are required (normally already present on Windows 11). Internet access is still required for extraction, scanning and GitHub saves. Unsigned builds may produce a Windows SmartScreen warning; only download from this repository's releases.
+
+The executable is portable (you can copy it to another folder or USB drive), but **settings and channels are stored by WebView2 in the Windows user profile, not alongside the exe**. Export your channels from the app before moving to another PC; enter your GitHub token on that PC separately. The app does not bundle a token. On desktop the GitHub repo defaults to `a2onis/mtproto-checker`; change it in Settings if you use a fork. Reports can be downloaded locally without a token.
+
+### Build or publish a Windows release
+
+The source remains plain HTML/CSS/JS; the desktop wrapper is in `src-tauri/`. On Windows with Node.js 22, Rust/MSVC build tools and WebView2 installed:
+
+```powershell
+npm ci
+npm run tauri build -- --no-bundle
+# src-tauri/target/release/mtproto-checker.exe
+```
+
+`npm run build:web` stages only `index.html`, `css/` and `js/` into the ignored `src-tauri/web/` directory; no `.git`, results or secrets are embedded. The [Windows release workflow](.github/workflows/windows-release.yml) builds on `windows-latest` and uploads the standalone `.exe` to GitHub Releases. Its first push to the Arena development branch bootstraps `v0.1.0`; later, after the workflow has reached the default branch, push a `vX.Y.Z` tag on a commit with this workflow or run it manually with a tag. The release tag points to the built source commit. No executable is checked into Git.
+
+## Quick start (web)
+
+No build step for the website — it's plain HTML/CSS/JS.
 
 ```bash
 # local preview
