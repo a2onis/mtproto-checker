@@ -1,0 +1,28 @@
+[package]
+name = "mtproto-checker"
+version = "0.2.0"
+description = "Extract and test MTProto proxy configurations from Telegram channels"
+authors = ["a2onis"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+arboard = "3.6"
+reqwest = { version = "0.12", features = ["json", "socks"] }
+rfd = "0.16"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["net", "time", "rt-multi-thread", "macros"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+panic = "abort"
+strip = "symbols"

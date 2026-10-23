@@ -13,6 +13,7 @@
  */
 
 import { extractConfigsFromText, canonicalLine, configKey } from "./extract.js";
+import { isDesktopApp, invokeDesktop } from "./desktop.js";
 
 /* ------------------------------ Validation ------------------------------ */
 
@@ -165,6 +166,28 @@ export async function scanConfig(cfg, opts, onTick) {
   if (!syntax.ok) {
     onTick?.();
     return { ...base, status: "invalid", reason: syntax.reason, latencyMs: null, resolvedIp: null };
+  }
+
+  if (isDesktopApp()) {
+    try {
+      const res = await invokeDesktop("scan_endpoint", {
+        server: cfg.server,
+        port: cfg.port,
+        timeoutMs,
+        attempts,
+      });
+      onTick?.();
+      return {
+        ...base,
+        status: res.status,
+        reason: res.reason,
+        latencyMs: res.latencyMs ?? null,
+        resolvedIp: res.resolvedIp || null,
+        probeKind: "tcp probe",
+      };
+    } catch {
+      // Fall through to the standard WebView probe if IPC failed unexpectedly.
+    }
   }
 
   if (isBrowserBlockedPort(cfg.port)) {
