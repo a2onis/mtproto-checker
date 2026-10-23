@@ -1,0 +1,14 @@
+{
+  "name": "mtproto-checker-desktop",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "build:web": "node scripts/stage-web.mjs",
+    "tauri": "tauri",
+    "test": "node --test tests/app.test.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0"
+  }
+}

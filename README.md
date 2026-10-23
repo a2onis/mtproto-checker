@@ -16,9 +16,32 @@ A single-page web application for **extracting and testing MTProto proxy configu
 | 2 · Configurations | Top right | Displays extracted configs and lets you paste/edit configs manually (`tg://proxy?…`, `https://t.me/proxy?…` or `server:port:secret`). |
 | 3 · Scan results | Bottom right | After pressing **Scan**, configurations are probed from your browser and listed **sorted by response speed**. Results are saved to `results/<date>.md`. |
 
-## Quick start
+## Windows 11 x64 Portable Executable
 
-No build step — it's plain HTML/CSS/JS.
+Download **`MTProto-Checker-Windows-x64.exe`** directly from the [GitHub Releases](https://github.com/a2onis/mtproto-checker/releases/latest) section and run it anywhere — **single portable `.exe`, no installer required**.
+
+- **Built for Windows 11 x64** (uses Windows 11's built-in Microsoft Edge WebView2 runtime, keeping the standalone executable compact at ~8–10 MB). Also compatible with Windows 10 x64 with WebView2 installed.
+- **Native raw TCP & DNS scanning** — unlike browser tabs, the desktop executable connects directly via native TCP sockets across **all 65,535 ports** (including ports such as `22`, `465`, `587`, and `993` that browsers block), bypassing system HTTP proxies during scans so latency is measured over your real connection.
+- **Direct channel extraction** — fetches `t.me/s/<channel>` natively without browser CORS restrictions (respecting Windows Internet Settings system proxy when enabled, with automatic fallback through built-in relay proxies).
+- **Native file dialogs & clipboard** — **Download**, **Export list**, **Copy**, and **Paste** use native Windows dialogs and clipboard APIs without browser permission prompts.
+
+> Note: Unsigned builds may trigger a standard Windows SmartScreen prompt on first launch (*More info → Run anyway*). Channel lists and settings persist in your Windows user profile across updates; use **Export list** / **Import list** when moving to another PC.
+
+### Building the Windows executable from source
+
+With Node.js 22 and the Rust `x86_64-pc-windows-msvc` toolchain installed on Windows:
+
+```powershell
+npm ci
+npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle
+# Output: src-tauri/target/x86_64-pc-windows-msvc/release/mtproto-checker.exe
+```
+
+Pushing a `vX.Y.Z` tag, publishing a new GitHub Release, or running the [Windows Portable Release workflow](.github/workflows/windows-release.yml) automatically builds `MTProto-Checker-Windows-x64.exe` (plus its `.sha256` checksum) on GitHub Actions (`windows-latest`) and attaches both files to the release.
+
+## Quick start (Web)
+
+No build step for the static web app — it remains plain HTML/CSS/JS.
 
 ```bash
 # local preview

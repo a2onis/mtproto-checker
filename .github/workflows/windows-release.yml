@@ -1,0 +1,212 @@
+name: Windows Portable Release
+
+on:
+  push:
+    branches:
+      - arena/39aa5275-mtproto-checker
+    tags:
+      - "v*"
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish or update (e.g. v0.2.0)"
+        required: false
+        default: "v0.2.0"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-x64:
+    name: Build Windows 11 x64 Portable EXE
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up Rust toolchain (x86_64-pc-windows-msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Determine target release tag & version
+        id: meta
+        shell: pwsh
+        env:
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if ($env:EVENT_RELEASE_TAG) {
+            $tag = $env:EVENT_RELEASE_TAG
+          } elseif ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+          } elseif ($env:INPUT_TAG) {
+            $tag = $env:INPUT_TAG
+          } else {
+            $tag = 'v0.2.0'
+          }
+          if ($tag -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+)$') {
+            throw "Invalid semantic version tag: $tag"
+          }
+          $ver = $Matches[1]
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Resolved release tag: $tag (version $ver)"
+
+      - name: Install frontend tools & run tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw "JavaScript tests failed" }
+
+      - name: Sync executable version & run Rust unit tests
+        shell: pwsh
+        env:
+          BUILD_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $confPath = "src-tauri/tauri.conf.json"
+          $conf = Get-Content $confPath -Raw | ConvertFrom-Json
+          $conf.version = $env:BUILD_VERSION
+          $conf | ConvertTo-Json -Depth 10 | Set-Content $confPath -Encoding UTF8
+
+          npm run build:web
+          if ($LASTEXITCODE -ne 0) { throw "Staging web assets failed" }
+
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc *> build.log
+          $ec = $LASTEXITCODE
+          Get-Content build.log
+          if ($ec -ne 0) { throw "Rust unit tests failed" }
+
+      - name: Build portable Windows 11 x64 executable
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $crtMode = "static"
+          $env:RUSTFLAGS = "-C target-feature=+crt-static"
+          npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle *>> build.log
+          $ec = $LASTEXITCODE
+          Get-Content build.log -Tail 30
+          if ($ec -ne 0) {
+            Write-Warning "Static CRT build did not link cleanly; rebuilding with standard Windows CRT..."
+            $crtMode = "dynamic"
+            Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+            npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle *>> build.log
+            $ec = $LASTEXITCODE
+            Get-Content build.log -Tail 30
+            if ($ec -ne 0) { throw "Tauri Windows x64 build failed" }
+          }
+          Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+
+          $builtExe = "src-tauri/target/x86_64-pc-windows-msvc/release/mtproto-checker.exe"
+          $outExe = "MTProto-Checker-Windows-x64.exe"
+          if (!(Test-Path $builtExe)) {
+            throw "Expected executable was not found at $builtExe"
+          }
+
+          Copy-Item $builtExe $outExe -Force
+          $item = Get-Item $outExe
+          $sizeMb = [math]::Round($item.Length / 1MB, 2)
+          $hash = (Get-FileHash -Path $outExe -Algorithm SHA256).Hash.ToLower()
+          "$hash  $outExe" | Set-Content "$outExe.sha256" -NoNewline -Encoding ASCII
+
+          # Inspect PE headers and imported DLLs with MSVC dumpbin when available
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            $vsPath = & $vswhere -latest -property installationPath
+            $dumpbin = Get-ChildItem -Path "$vsPath\VC\Tools\MSVC" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match "Hostx64\\x64" } |
+              Select-Object -First 1
+            if ($dumpbin) {
+              $headers = & $dumpbin.FullName /headers /dependents $outExe | Out-String
+              Write-Host $headers
+              if ($headers -notmatch "8664 machine \(x64\)") {
+                throw "Binary is not x64 PE32+"
+              }
+              if ($headers -notmatch "2 subsystem \(Windows GUI\)") {
+                throw "Binary does not target Windows GUI subsystem"
+              }
+            }
+          }
+
+          "size_mb=$sizeMb" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "crt_mode=$crtMode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Built $outExe ($sizeMb MB, CRT=$crtMode, SHA256=$hash)"
+
+      - name: Upload portable .exe to GitHub Releases
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          SIZE_MB: ${{ steps.build.outputs.size_mb }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          CRT_MODE: ${{ steps.build.outputs.crt_mode }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $exe = "MTProto-Checker-Windows-x64.exe"
+          $shaFile = "MTProto-Checker-Windows-x64.exe.sha256"
+
+          $winSection = @(
+            "",
+            "### Windows 11 x64 Portable Executable",
+            "- **Download:** ``MTProto-Checker-Windows-x64.exe`` ($env:SIZE_MB MB, single-file portable x64 GUI executable — no installation needed)",
+            "- **SHA-256:** ``$env:SHA256``",
+            "- **Compatibility:** Windows 11 x64 (WebView2 built in out of the box) & Windows 10 x64"
+          ) -join "`n"
+
+          $existingBody = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:TAG" --jq ".body" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG $exe $shaFile --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Failed uploading release assets to $env:TAG" }
+
+            if ($existingBody -notmatch "MTProto-Checker-Windows-x64\.exe") {
+              $updatedBody = ($existingBody.TrimEnd() + "`n" + $winSection).Trim()
+              $updatedBody | gh release edit $env:TAG --notes-file -
+              if ($LASTEXITCODE -ne 0) { throw "Failed updating release notes on $env:TAG" }
+            }
+          } else {
+            $notes = "Portable single-file Windows 11 / 10 (x64) desktop executable. Download and run directly — no installer required.`n$winSection"
+            $notes | gh release create $env:TAG $exe $shaFile --title "MTProto Checker $env:TAG" --generate-notes --notes-file -
+            if ($LASTEXITCODE -ne 0) { throw "Failed creating release $env:TAG" }
+          }
+
+          @(
+            "## Windows 11 x64 Portable Build Published",
+            "- **Release:** [$env:TAG](https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:TAG)",
+            "- **Executable:** ``$exe`` ($env:SIZE_MB MB, CRT: $env:CRT_MODE)",
+            "- **SHA-256:** ``$env:SHA256``"
+          ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Surface failure diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path build.log) {
+            $tail = (Get-Content build.log -Tail 45) -join "%0A"
+            Write-Host "::error title=Windows Build Diagnostics::$tail"
+          }

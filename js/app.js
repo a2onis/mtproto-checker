@@ -20,6 +20,7 @@ import {
 } from "./scan.js";
 import { detectRepo, commitFile, readFile } from "./github.js";
 import { initResizable } from "./resize.js";
+import { isDesktopApp, invokeDesktop } from "./desktop.js";
 
 /* ------------------------------- State ------------------------------- */
 
@@ -547,7 +548,7 @@ function renderResults(results) {
     }
     const note = document.createElement("span");
     note.className = "note";
-    note.textContent = r.status === "invalid" ? r.reason || "bad syntax" : "browser probe";
+    note.textContent = r.status === "invalid" ? r.reason || "bad syntax" : (r.probeKind || "browser probe");
     latency.append(msWrap, note);
 
     li.append(rank, main, latency);
@@ -606,6 +607,32 @@ async function saveResultsToRepo() {
   }
 }
 
+async function saveFileOrDownload({ filename, content, mime, filterName, filterExt, okMessage }) {
+  if (isDesktopApp()) {
+    try {
+      const res = await invokeDesktop("save_text_file", {
+        defaultName: filename,
+        content,
+        filterName,
+        filterExt,
+      });
+      if (res?.canceled) return;
+      toast(res?.path ? `Saved to ${res.path}` : okMessage, "success");
+      return;
+    } catch {
+      // Fall back to standard browser download if dialog call failed.
+    }
+  }
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(okMessage, "success");
+}
+
 function downloadResults() {
   if (!lastResults.length) return;
   const dayStr = todayStr();
@@ -616,14 +643,14 @@ function downloadResults() {
     .join("\n---\n\n");
   const content = `${header}---\n\n${body}\n`;
 
-  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${dayStr}.md`;
-  a.click();
-  URL.revokeObjectURL(url);
-  toast(`Downloaded ${dayStr}.md`, "success");
+  saveFileOrDownload({
+    filename: `${dayStr}.md`,
+    content,
+    mime: "text/markdown;charset=utf-8",
+    filterName: "Markdown Document",
+    filterExt: "md",
+    okMessage: `Downloaded ${dayStr}.md`,
+  });
 }
 
 /* --------------------------- Settings modal --------------------------- */
@@ -697,14 +724,14 @@ function init() {
   els.btnExtract.addEventListener("click", extractSelected);
 
   els.btnExportChannels.addEventListener("click", () => {
-    const blob = new Blob([JSON.stringify(channels, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `mtproto-checker-channels-${todayStr()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast("Channel list exported", "success");
+    saveFileOrDownload({
+      filename: `mtproto-checker-channels-${todayStr()}.json`,
+      content: JSON.stringify(channels, null, 2),
+      mime: "application/json",
+      filterName: "JSON Channel List",
+      filterExt: "json",
+      okMessage: "Channel list exported",
+    });
   });
   els.btnImportChannels.addEventListener("click", () => els.importFile.click());
   els.importFile.addEventListener("change", async () => {
@@ -748,7 +775,11 @@ function init() {
   });
   els.btnCopy.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText(els.configInput.value);
+      if (isDesktopApp()) {
+        await invokeDesktop("write_clipboard", { text: els.configInput.value });
+      } else {
+        await navigator.clipboard.writeText(els.configInput.value);
+      }
       toast("Configurations copied to clipboard", "success");
     } catch {
       toast("Clipboard access was denied by the browser.", "error");
@@ -756,7 +787,9 @@ function init() {
   });
   els.btnPaste.addEventListener("click", async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = isDesktopApp()
+        ? await invokeDesktop("read_clipboard")
+        : await navigator.clipboard.readText();
       if (!text) return;
       const current = els.configInput.value.trim();
       els.configInput.value = current ? `${current}\n${text.trim()}` : text.trim();

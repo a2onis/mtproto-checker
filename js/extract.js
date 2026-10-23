@@ -4,6 +4,8 @@
  * CORS proxies (the app is fully static and runs on GitHub Pages).
  */
 
+import { isDesktopApp, invokeDesktop } from "./desktop.js";
+
 /** Built-in public CORS proxies, tried in order. */
 const BUILTIN_PROXIES = [
   (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
@@ -86,6 +88,20 @@ async function fetchWithTimeout(url, timeout = REQUEST_TIMEOUT) {
 
 /** Fetch a t.me URL through the first proxy that answers with usable HTML. */
 export async function fetchTmePage(tmeUrl, customProxy) {
+  if (isDesktopApp()) {
+    try {
+      const html = await invokeDesktop("fetch_tme_page", {
+        url: tmeUrl,
+        customProxy: customProxy || "",
+      });
+      if (/tgme_widget_message|tgme_channel_info|tgme_page_title|tgme_page_icon/i.test(html)) {
+        return html;
+      }
+    } catch {
+      // Fall back to the browser fetch loop if native fetching failed.
+    }
+  }
+
   const templates = proxyUrlTemplates(customProxy);
   let lastError = null;
 

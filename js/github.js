@@ -4,8 +4,14 @@
  * the GitHub Contents API and a user-provided token.
  */
 
+import { isDesktopApp } from "./desktop.js";
+
 /** Best-effort guess of owner/repo from the GitHub Pages URL. */
 export function detectRepo() {
+  // Packaged desktop builds run on tauri.localhost rather than GitHub Pages.
+  if (isDesktopApp()) {
+    return { owner: "a2onis", repo: "mtproto-checker" };
+  }
   try {
     const host = location.hostname; // e.g. "alice.github.io"
     const segs = location.pathname.split("/").filter(Boolean);
