@@ -102,3 +102,18 @@ You can add your own CORS proxy template (with a `{url}` placeholder) in Setting
 - Channel list and settings stay in your browser (`localStorage`).
 - Scanning happens from your browser directly to the proxies.
 - Only the sorted scan report is ever sent to GitHub (and only if you configure a token).
+
+### Configuration-list sources and sharing
+
+Add a source using the sidebar: public Telegram channels still extract today's posts,
+while an HTTP(S) URL is fetched as a configuration list without a date filter. The
+list may contain `tg://proxy` or `https://t.me/proxy` links or `host:port:secret`
+entries. Sources are included in the existing JSON import/export. In browser mode,
+the list server must permit cross-origin requests; the desktop app fetches it directly.
+Only use trusted sources. Configuration URLs and secrets may be sensitive.
+
+Results appear as each probe finishes. Pause prevents new probes from starting;
+probes already in flight finish and appear normally. Resume continues the queue.
+Select result checkboxes to copy exactly those links, or show one locally generated
+QR code per selected configuration (no links are sent to a QR service). Select all
+selects results currently visible; newly completed results are not selected automatically.

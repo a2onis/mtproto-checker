@@ -197,6 +197,14 @@ fn contains_tme_markers(html: &str) -> bool {
 }
 
 #[tauri::command]
+async fn fetch_resource(url: String) -> Result<String, String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Invalid URL scheme".into());
+    }
+    http_get_text(&url, 12000, None).await
+}
+
+#[tauri::command]
 async fn fetch_tme_page(url: String, custom_proxy: String) -> Result<String, String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("Invalid URL scheme".into());
@@ -478,6 +486,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             fetch_tme_page,
+            fetch_resource,
             scan_endpoint,
             save_text_file,
             read_clipboard,

@@ -192,7 +192,7 @@ jobs:
             }
           } else {
             $notes = "Portable single-file Windows 11 / 10 (x64) desktop executable. Download and run directly — no installer required.`n$winSection"
-            $notes | gh release create $env:TAG $exe $shaFile --title "MTProto Checker $env:TAG" --generate-notes --notes-file -
+            $notes | gh release create $env:TAG $exe $shaFile --target $env:GITHUB_SHA --title "MTProto Checker $env:TAG" --generate-notes --notes-file -
             if ($LASTEXITCODE -ne 0) { throw "Failed creating release $env:TAG" }
           }
 

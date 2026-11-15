@@ -122,3 +122,32 @@ test("web mode vs desktop IPC bridge behavior", async (t) => {
   const md = buildScanSection(sorted);
   assert.match(md, /`1\.2\.3\.4`/);
 });
+
+test("scan streams completed results and pauses queued work until resumed", async () => {
+  const { scanConfigs, createScanController } = await import("../js/scan.js");
+  const controller = createScanController();
+  controller.pause();
+  const configs = ["a", "b", "c"].map((server) => ({ server, port: 0, secret: "bad" }));
+  const progress = [];
+  const pending = scanConfigs(configs, { scanParallel: 1 }, (done, total, result) => {
+    progress.push([done, total, result.server]);
+    if (done === 1) controller.pause();
+  }, controller);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(progress.length, 0);
+  controller.resume();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(progress, [[1, 3, "a"]]);
+  controller.resume();
+  const results = await pending;
+  assert.equal(results.length, 3);
+  assert.deepEqual(progress.map((p) => p[0]), [1, 2, 3]);
+});
+
+test("bundled QR encoder generates a local image for a proxy link", async () => {
+  const { default: qrcode } = await import("../js/vendor/qrcode.js");
+  const qr = qrcode(0, "M");
+  qr.addData("tg://proxy?server=1.2.3.4&port=443&secret=0123456789abcdef0123456789abcdef");
+  qr.make();
+  assert.match(qr.createDataURL(), /^data:image\/gif;base64,/);
+});
