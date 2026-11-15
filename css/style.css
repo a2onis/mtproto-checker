@@ -617,7 +617,7 @@ body.is-resizing { user-select: none; }
 
 .result-item {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: auto 34px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 11px 13px;
@@ -941,6 +941,12 @@ body.is-resizing { user-select: none; }
   .topbar { padding: 12px 14px; }
   .layout { padding: 12px 14px 18px; }
   .panel-actions { width: 100%; }
-  .result-item { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 9px; padding: 10px; }
+  .result-item { grid-template-columns: auto 28px minmax(0, 1fr) auto; gap: 9px; padding: 10px; }
   .topbar-right .btn span { display: none; }
 }
+
+.share-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; }
+.result-check { flex: 0 0 auto; accent-color: #6d8aff; }
+.qr-list { max-height: 65vh; overflow-y: auto; }
+.qr-item { text-align: center; margin-bottom: 20px; overflow-wrap: anywhere; }
+.qr-item img { max-width: 100%; background: white; }

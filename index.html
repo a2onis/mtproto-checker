@@ -46,16 +46,16 @@
       <aside class="sidebar" id="sidebar" data-resize-key="sidebar">
         <div class="sidebar-head">
           <div class="sidebar-title">
-            <h2>Channels</h2>
+            <h2>Sources</h2>
             <span class="count-badge" id="channelCount">0</span>
           </div>
           <button class="btn btn-primary btn-block" id="btnAddChannel">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-            Add Channel
+            Add Source
           </button>
           <div class="search-box">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-            <input type="search" id="channelSearch" placeholder="Search channels…" autocomplete="off" />
+            <input type="search" id="channelSearch" placeholder="Search sources…" autocomplete="off" />
           </div>
         </div>
 
@@ -64,8 +64,8 @@
         </div>
         <div class="sidebar-empty" id="channelEmpty">
           <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <p>No channels yet</p>
-          <span>Add a Telegram channel to start extracting today's MTProto configurations.</span>
+          <p>No sources yet</p>
+          <span>Add a Telegram channel or a URL containing a list of configurations.</span>
         </div>
 
         <div class="sidebar-foot">
@@ -131,6 +131,7 @@
                 <svg id="btnScanIcon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
                 <span id="btnScanLabel">Scan</span>
               </button>
+              <button class="btn btn-ghost btn-xs" id="btnPause" hidden>Pause</button>
               <button class="btn btn-ghost btn-xs" id="btnSaveRepo" title="Save the sorted results to results/YYYY-MM-DD.md in the repository" disabled>Save to repo</button>
               <button class="btn btn-ghost btn-xs" id="btnDownloadResults" title="Download the sorted results file" disabled>Download</button>
             </div>
@@ -141,6 +142,13 @@
             <div class="scan-progress-text" id="scanProgressText">Scanning…</div>
           </div>
 
+          <div class="share-actions">
+            <button class="btn btn-ghost btn-xs" id="btnSelectResults">Select all results</button>
+            <button class="btn btn-ghost btn-xs" id="btnClearResults">Clear selection</button>
+            <button class="btn btn-ghost btn-xs" id="btnCopyResults" disabled>Copy selected</button>
+            <button class="btn btn-ghost btn-xs" id="btnQrResults" disabled>QR codes</button>
+            <span class="hint" id="selectedCount">0 selected</span>
+          </div>
           <div class="results-body" id="resultsBody">
             <div class="results-empty" id="resultsEmpty">
               <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
@@ -170,9 +178,9 @@
       </div>
       <div class="modal-body">
         <label class="field">
-          <span class="field-label">Telegram channel</span>
+          <span class="field-label">Telegram channel or configuration list URL</span>
           <input type="text" id="channelInput" placeholder="@mychannel · t.me/mychannel · -1001234567890" autocomplete="off" />
-          <span class="field-hint">Accepts <span class="mono">@username</span>, <span class="mono">t.me/…</span> links or a numeric channel ID. Extraction needs a public username.</span>
+          <span class="field-hint">Accepts <span class="mono">@username</span>, <span class="mono">t.me/…</span> links or a numeric channel ID. Extraction needs a public username. For a configuration list, enter an HTTP(S) URL (browser access requires CORS).</span>
         </label>
         <label class="field">
           <span class="field-label">Label <em>(optional)</em></span>
@@ -184,6 +192,14 @@
         <button class="btn btn-ghost" data-close-modal>Cancel</button>
         <button class="btn btn-primary" id="btnSaveChannel">Save</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="qrModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
+      <div class="modal-head"><h3 id="qrTitle">Selected configurations</h3><button class="icon-btn" data-close-modal aria-label="Close">✕</button></div>
+      <div class="modal-body qr-list" id="qrList"></div>
+      <div class="modal-foot"><button class="btn btn-ghost" data-close-modal>Close</button></div>
     </div>
   </div>
 

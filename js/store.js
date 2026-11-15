@@ -106,11 +106,13 @@ export function normalizeChannelInput(raw) {
 
 export function channelDisplayName(ch) {
   if (ch.label) return ch.label;
+  if (ch.url) return ch.url;
   if (ch.username) return `@${ch.username}`;
   return `ID ${ch.numericId}`;
 }
 
 export function channelSubText(ch) {
+  if (ch.url) return ch.url;
   if (ch.username) return `t.me/${ch.username}`;
   return "numeric ID — needs @username to extract";
 }

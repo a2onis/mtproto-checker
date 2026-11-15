@@ -253,17 +253,30 @@ export async function scanConfig(cfg, opts, onTick) {
  * Calls onProgress(done, total) after each config completes.
  * Returns results sorted: valid/slow first by latency, then dead ones.
  */
-export async function scanConfigs(configs, opts, onProgress) {
+export function createScanController() {
+  let paused = false;
+  let waiters = [];
+  return {
+    get paused() { return paused; },
+    pause() { paused = true; },
+    resume() { paused = false; const pending = waiters; waiters = []; pending.forEach((resolve) => resolve()); },
+    async wait() { while (paused) await new Promise((resolve) => waiters.push(resolve)); },
+  };
+}
+
+export async function scanConfigs(configs, opts, onProgress, controller = createScanController()) {
   const results = new Array(configs.length);
   let done = 0;
 
   const queue = configs.map((cfg, index) => ({ cfg, index }));
   const workers = Array.from({ length: Math.max(1, Math.min(opts.scanParallel || 6, 16)) }, async () => {
     while (queue.length) {
+      await controller.wait();
+      if (!queue.length) break;
       const { cfg, index } = queue.shift();
       results[index] = await scanConfig(cfg, opts);
       done++;
-      onProgress?.(done, configs.length);
+      onProgress?.(done, configs.length, results[index]);
     }
   });
   await Promise.all(workers);

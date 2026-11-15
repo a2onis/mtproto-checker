@@ -13,9 +13,10 @@ import {
   loadSettings, saveSettings,
   normalizeChannelInput, channelDisplayName, channelSubText,
 } from "./store.js";
-import { extractTodaysConfigs, canonicalLine, configKey } from "./extract.js";
+import qrcode from "./vendor/qrcode.js";
+import { extractTodaysConfigs, extractConfigsFromText, canonicalLine, configKey } from "./extract.js";
 import {
-  parseConfigs, scanConfigs, sortResults,
+  parseConfigs, scanConfigs, sortResults, createScanController,
   buildScanSection, buildDayReport, dateFileName, timestampLabel, STATUS_LABELS,
 } from "./scan.js";
 import { detectRepo, commitFile, readFile } from "./github.js";
@@ -31,6 +32,8 @@ let lastSectionMd = "";          // markdown of the last scan section
 let localDaySections = [];       // sections accumulated locally this session
 let extractTimer = null;
 let scanning = false;
+let scanController = null;
+const selectedResults = new Set();
 let extracting = false;
 const busyTasks = new Map();     // key -> label of work currently in progress
 
@@ -76,6 +79,10 @@ const els = {
   btnSortConfigs: $("btnSortConfigs"),
   btnClearConfigs: $("btnClearConfigs"),
 
+  btnPause: $("btnPause"),
+  btnSelectResults: $("btnSelectResults"), btnClearResults: $("btnClearResults"),
+  btnCopyResults: $("btnCopyResults"), btnQrResults: $("btnQrResults"), selectedCount: $("selectedCount"),
+  qrModal: $("qrModal"), qrList: $("qrList"),
   btnScan: $("btnScan"),
   btnScanLabel: $("btnScanLabel"),
   btnScanIcon: $("btnScanIcon"),
@@ -155,7 +162,7 @@ function renderChannels() {
     return (
       channelDisplayName(ch).toLowerCase().includes(q) ||
       (ch.username || "").toLowerCase().includes(q) ||
-      (ch.numericId || "").includes(q)
+      (ch.numericId || "").includes(q) || (ch.url || "").toLowerCase().includes(q)
     );
   });
 
@@ -184,7 +191,7 @@ function renderChannels() {
     name.className = "channel-name";
     name.textContent = channelDisplayName(ch);
     const sub = document.createElement("div");
-    sub.className = `channel-sub${ch.username ? "" : " warn"}`;
+    sub.className = `channel-sub${ch.username || ch.url ? "" : " warn"}`;
     sub.textContent = channelSubText(ch);
     info.append(name, sub);
     info.addEventListener("click", () => {
@@ -236,10 +243,10 @@ let editingChannelId = null;
 
 function openChannelModal(channel = null) {
   editingChannelId = channel ? channel.id : null;
-  els.channelModalTitle.textContent = channel ? "Edit Channel" : "Add Channel";
-  els.btnSaveChannel.textContent = channel ? "Save changes" : "Add channel";
+  els.channelModalTitle.textContent = channel ? "Edit Source" : "Add Source";
+  els.btnSaveChannel.textContent = channel ? "Save changes" : "Add source";
   els.channelInput.value = channel
-    ? channel.username ? `@${channel.username}` : channel.numericId
+    ? channel.url || (channel.username ? `@${channel.username}` : channel.numericId)
     : "";
   els.channelLabel.value = channel?.label || "";
   els.channelModalError.hidden = true;
@@ -250,10 +257,16 @@ function openChannelModal(channel = null) {
 function closeModals() {
   els.channelModal.hidden = true;
   els.settingsModal.hidden = true;
+  els.qrModal.hidden = true;
 }
 
 function saveChannelFromModal() {
-  const parsed = normalizeChannelInput(els.channelInput.value);
+  const input = els.channelInput.value.trim();
+  let parsed;
+  if (/^https?:\/\//i.test(input) && !/^https?:\/\/(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog|tx\.me)\//i.test(input)) {
+    try { const url = new URL(input); parsed = url.username || url.password ? { error: "URLs with credentials are not supported." } : { url: url.href }; }
+    catch { parsed = { error: "Enter a valid HTTP(S) URL." }; }
+  } else parsed = normalizeChannelInput(input);
   const errEl = els.channelModalError;
 
   if (parsed.error) {
@@ -266,11 +279,11 @@ function saveChannelFromModal() {
   const dupe = channels.find(
     (c) =>
       c.id !== editingChannelId &&
-      ((parsed.username && c.username === parsed.username) ||
+      ((parsed.url && c.url === parsed.url) || (parsed.username && c.username?.toLowerCase() === parsed.username.toLowerCase()) ||
         (parsed.numericId && c.numericId === parsed.numericId))
   );
   if (dupe) {
-    errEl.textContent = "This channel is already in your list.";
+    errEl.textContent = "This source is already in your list.";
     errEl.hidden = false;
     return;
   }
@@ -278,14 +291,15 @@ function saveChannelFromModal() {
   if (editingChannelId) {
     const ch = channels.find((c) => c.id === editingChannelId);
     if (ch) {
-      ch.username = parsed.username;
+      ch.url = parsed.url || null;
+      ch.username = parsed.username || null;
       ch.numericId = parsed.numericId;
       ch.label = label;
     }
     toast("Channel updated", "success");
   } else {
-    channels.push(makeChannel({ username: parsed.username, numericId: parsed.numericId, label }));
-    toast(`Added ${label || (parsed.username ? `@${parsed.username}` : parsed.numericId)}`, "success");
+    channels.push({ ...makeChannel({ username: parsed.username, numericId: parsed.numericId, label }), url: parsed.url || null });
+    toast(`Added ${label || parsed.url || (parsed.username ? `@${parsed.username}` : parsed.numericId)}`, "success");
     if (parsed.numericId && !parsed.username) {
       toast("Numeric IDs cannot be extracted from the web preview — edit the channel and set its public @username.", "warn", 6000);
     }
@@ -356,6 +370,28 @@ async function extractSelectedChannels() {
   let fail = 0;
 
   for (const ch of selected) {
+    if (ch.url) {
+      els.extractStatus.textContent = `Fetching ${channelDisplayName(ch)}…`;
+      try {
+        let text;
+        if (isDesktopApp()) text = await invokeDesktop("fetch_resource", { url: ch.url });
+        else {
+          const response = await fetch(ch.url, { signal: AbortSignal.timeout(12000) });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          text = await response.text();
+        }
+        const configs = extractConfigsFromText(text);
+        newCount += mergeConfigsIntoTextarea(configs);
+        total += configs.length;
+        okChannels++;
+        els.extractStatus.textContent = `${channelDisplayName(ch)}: ${configs.length} config(s).`;
+      } catch (err) {
+        fail++;
+        els.extractStatus.textContent = `Failed to fetch ${channelDisplayName(ch)}: ${err.message}`;
+        toast(els.extractStatus.textContent, "error");
+      }
+      continue;
+    }
     if (!ch.username) {
       els.extractStatus.textContent = `Skipping ${channelDisplayName(ch)} — a public @username is required for extraction.`;
       fail++;
@@ -378,14 +414,14 @@ async function extractSelectedChannels() {
 
   if (okChannels) {
     toast(
-      `Extracted ${total} config(s) from ${okChannels} channel(s) — ${newCount} new added to the textarea.`,
+      `Extracted ${total} config(s) from ${okChannels} source(s) — ${newCount} new added to the textarea.`,
       "success"
     );
     els.extractStatus.textContent =
-      `Extracted ${total} config(s) from ${okChannels} channel(s) for ${day}. ${newCount} new added.`;
+      `Extracted ${total} config(s) from ${okChannels} source(s) for ${day}. ${newCount} new added.`;
   }
   if (fail && !okChannels) {
-    toast("Extraction failed for the selected channels. Check their @usernames or try again.", "error");
+    toast("Extraction failed for the selected sources. Check their URLs or usernames and try again.", "error");
   }
   updateConfigStats();
 }
@@ -417,6 +453,15 @@ async function runScan() {
   }
 
   scanning = true;
+  scanController = createScanController();
+  selectedResults.clear();
+  lastResults = [];
+  lastSectionMd = "";
+  renderResults(lastResults);
+  els.btnSaveRepo.disabled = true;
+  els.btnDownloadResults.disabled = true;
+  els.btnPause.hidden = false;
+  els.btnPause.textContent = "Pause";
   els.btnScan.disabled = true;
   els.btnScanLabel.textContent = "Scanning…";
   els.btnScanSpinner.hidden = false;
@@ -429,11 +474,13 @@ async function runScan() {
 
   const t0 = performance.now();
   try {
-    const results = await scanConfigs(configs, settings, (done, total) => {
+    const results = await scanConfigs(configs, settings, (done, total, result) => {
+      lastResults = sortResults([...lastResults, result]);
+      renderResults(lastResults);
       const pct = Math.round((done / total) * 100);
       els.scanProgressFill.style.width = `${pct}%`;
-      els.scanProgressText.textContent = `Scanning ${done} / ${total}…`;
-    });
+      els.scanProgressText.textContent = `${scanController.paused ? "Paused" : "Scanning"} ${done} / ${total}…`;
+    }, scanController);
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
 
     lastResults = results;
@@ -459,6 +506,8 @@ async function runScan() {
     els.scanStatus.textContent = `Scan failed: ${err.message}`;
   } finally {
     scanning = false;
+    scanController = null;
+    els.btnPause.hidden = true;
     els.btnScan.disabled = false;
     els.btnScanLabel.textContent = "Scan";
     els.btnScanSpinner.hidden = true;
@@ -478,6 +527,8 @@ function resultClass(r, rank) {
 
 function renderResults(results) {
   els.resultList.textContent = "";
+  els.selectedCount.textContent = `${selectedResults.size} selected`;
+  els.btnCopyResults.disabled = els.btnQrResults.disabled = selectedResults.size === 0;
   els.resultCount.textContent = String(results.length);
   els.resultsEmpty.classList.toggle("show", results.length === 0);
 
@@ -551,7 +602,16 @@ function renderResults(results) {
     note.textContent = r.status === "invalid" ? r.reason || "bad syntax" : (r.probeKind || "browser probe");
     latency.append(msWrap, note);
 
-    li.append(rank, main, latency);
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "result-check";
+    check.setAttribute("aria-label", `Select ${r.server}:${r.port}`);
+    check.checked = selectedResults.has(configKey(r));
+    check.addEventListener("change", () => {
+      if (check.checked) selectedResults.add(configKey(r)); else selectedResults.delete(configKey(r));
+      renderResults(lastResults);
+    });
+    li.append(check, rank, main, latency);
     els.resultList.appendChild(li);
   });
 }
@@ -742,16 +802,20 @@ function init() {
       if (!Array.isArray(data)) throw new Error("Not an array");
       let added = 0;
       for (const item of data) {
-        const parsed = normalizeChannelInput(item.username ? `@${item.username}` : item.numericId || "");
+        let parsed;
+        if (item.url) {
+          try { const u = new URL(item.url); parsed = ["http:", "https:"].includes(u.protocol) && !u.username && !u.password ? { url: u.href } : { error: "Invalid URL" }; }
+          catch { parsed = { error: "Invalid URL" }; }
+        } else parsed = normalizeChannelInput(item.username ? `@${item.username}` : item.numericId || "");
         if (parsed.error) continue;
         const dupe = channels.some(
           (c) =>
-            (parsed.username && c.username === parsed.username) ||
+            (parsed.url && c.url === parsed.url) || (parsed.username && c.username === parsed.username) ||
             (parsed.numericId && c.numericId === parsed.numericId)
         );
         if (dupe) continue;
         channels.push(
-          makeChannel({ username: parsed.username, numericId: parsed.numericId, label: item.label || "" })
+          { ...makeChannel({ username: parsed.username, numericId: parsed.numericId, label: item.label || "" }), url: parsed.url || null }
         );
         added++;
       }
@@ -809,6 +873,35 @@ function init() {
 
   // Scan
   els.btnScan.addEventListener("click", runScan);
+  els.btnPause.addEventListener("click", () => {
+    if (!scanController) return;
+    if (scanController.paused) { scanController.resume(); els.btnPause.textContent = "Pause"; els.scanStatus.textContent = "Scan resumed."; }
+    else { scanController.pause(); els.btnPause.textContent = "Resume"; els.scanStatus.textContent = "Paused — in-flight probes will finish; queued probes wait until resumed."; }
+  });
+  els.btnSelectResults.addEventListener("click", () => { lastResults.forEach((r) => selectedResults.add(configKey(r))); renderResults(lastResults); });
+  els.btnClearResults.addEventListener("click", () => { selectedResults.clear(); renderResults(lastResults); });
+  const selected = () => lastResults.filter((r) => selectedResults.has(configKey(r)));
+  els.btnCopyResults.addEventListener("click", async () => {
+    const text = selected().map(canonicalLine).join("\n");
+    if (!text) return;
+    try {
+      if (isDesktopApp()) await invokeDesktop("write_clipboard", { text });
+      else await navigator.clipboard.writeText(text);
+      toast("Selected configurations copied", "success");
+    } catch { toast("Clipboard access was denied.", "error"); }
+  });
+  els.btnQrResults.addEventListener("click", () => {
+    els.qrList.textContent = "";
+    for (const r of selected()) {
+      const block = document.createElement("div"); block.className = "qr-item";
+      const label = document.createElement("p"); label.textContent = `${r.server}:${r.port}`;
+      const image = document.createElement("img"); image.alt = `QR code for ${r.server}:${r.port}`;
+      try { const qr = qrcode(0, "M"); qr.addData(canonicalLine(r)); qr.make(); image.src = qr.createDataURL(4, 16); block.append(label, image); }
+      catch { block.textContent = `Configuration for ${r.server}:${r.port} is too large for a QR code; copy it instead.`; }
+      els.qrList.append(block);
+    }
+    els.qrModal.hidden = false;
+  });
   els.btnSaveRepo.addEventListener("click", saveResultsToRepo);
   els.btnDownloadResults.addEventListener("click", downloadResults);
   document.addEventListener("keydown", (e) => {
@@ -825,7 +918,7 @@ function init() {
   for (const btn of document.querySelectorAll("[data-close-modal]")) {
     btn.addEventListener("click", closeModals);
   }
-  for (const backdrop of [els.channelModal, els.settingsModal]) {
+  for (const backdrop of [els.channelModal, els.settingsModal, els.qrModal]) {
     backdrop.addEventListener("click", (e) => {
       if (e.target === backdrop) closeModals();
     });
